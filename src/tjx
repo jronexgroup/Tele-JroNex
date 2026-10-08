@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+import argparse
+import socket
+import ssl
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import client
+import config
+import protocol
+
+VERSION = "1.0.0"
+
+
+def peer_reachable_tcp(ip, port, timeout=3):
+    try:
+        with socket.create_connection((ip, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def local_listener_online(cfg):
+    port = int(cfg.get("local", {}).get("port", 45821))
+    return peer_reachable_tcp("127.0.0.1", port, timeout=2)
+
+
+def service_active():
+    try:
+        r = subprocess.run(
+            ["systemctl", "--user", "is-active", "tele-jronex.service"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return r.stdout.strip() == "active"
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def cmd_status(cfg):
+    port = cfg.get("local", {}).get("port", "?")
+    online = local_listener_online(cfg)
+    print("Tele JroNex Status")
+    print("────────────────────────────")
+    print(f"Local name      : {cfg.get('local', {}).get('name', '?')}")
+    print(f"Local port      : {port}")
+    print(f"Service         : {'active' if service_active() else 'inactive/unknown'}")
+    print(f"Listener        : {'ONLINE' if online else 'OFFLINE'}")
+    print(f"Peer            : {cfg.get('peer', {}).get('name', '?')} ({cfg.get('peer', {}).get('public_ip', '?')}:{cfg.get('peer', {}).get('port', '?')})")
+
+
+def cmd_config(cfg):
+    print(f"Config file: {config.CONFIG_PATH}")
+    if config.CONFIG_PATH.exists():
+        print(config.CONFIG_PATH.read_text(encoding="utf-8"))
+    else:
+        print("(not found)")
+
+
+def cmd_test(cfg):
+    print("Tele JroNex Connectivity Test")
+    print()
+    online = local_listener_online(cfg)
+    port = cfg.get("local", {}).get("port", "?")
+    print(f"Local listener     : {'ONLINE' if online else 'OFFLINE'}")
+    print(f"Local port         : {port}")
+    print(f"Peer               : {cfg.get('peer', {}).get('name', '?')}")
+    print(f"Peer IP            : {cfg.get('peer', {}).get('public_ip', '?')}")
+    print(f"Peer port          : {cfg.get('peer', {}).get('port', '?')}")
+    print()
+    ip = cfg.get("peer", {}).get("public_ip", "")
+    pport = int(cfg.get("peer", {}).get("port", 0))
+    timeout = int(cfg.get("network", {}).get("connect_timeout", 8))
+    try:
+        cert = cfg["local"].get("cert_path", str(config.CONFIG_DIR / "cert.pem"))
+        key = cfg["local"].get("key_path", str(config.CONFIG_DIR / "key.pem"))
+        raw = socket.create_connection((ip, pport), timeout=timeout)
+    except (OSError, socket.timeout, KeyError):
+        print("Connection         : FAILED")
+        print()
+        print("Possible causes:")
+        print("- Peer PC is offline")
+        print("- JroNex listener is stopped")
+        print("- Port forwarding is missing")
+        print("- Firewall is blocking the connection")
+        print("- Public IP has changed")
+        return
+    try:
+        peer_cert = cfg["peer"].get("cert_path", str(config.CONFIG_DIR / "peer_cert.pem"))
+        ctx = protocol.tls_context_client(cert, key, peer_cert)
+        tls = ctx.wrap_socket(raw, server_hostname=ip)
+        if not protocol.peer_cert_matches(tls, cfg.get("peer", {}).get("fingerprint", "")):
+            print("Connection         : FAILED (cert fingerprint mismatch)")
+            return
+        shared = cfg.get("security", {}).get("shared_key", "")
+        protocol.handshake_client(tls, cfg.get("local", {}).get("name", "SP"), shared,
+                                  peer_name=cfg.get("peer", {}).get("name"), timeout=timeout)
+        protocol.send_frame(tls, protocol.PING)
+        header, _ = protocol.recv_frame(tls)
+        try:
+            tls.close()
+        except OSError:
+            pass
+        print("Connection         : OK")
+        print("Authentication     : OK")
+        print()
+        print("Tele JroNex        : READY")
+    except (protocol.ProtocolError, ssl.SSLError, OSError) as e:
+        print(f"Connection         : FAILED ({e})")
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="tjx", description="Tele JroNex")
+    parser.add_argument("command", nargs="?", default=None)
+    args = parser.parse_args()
+    if args.command not in (None, "status", "config", "test", "version"):
+        parser.error(f"unknown command: {args.command}")
+    cfg = config.load_config()
+    if args.command == "version":
+        print(f"Tele JroNex {VERSION}")
+    elif args.command == "status":
+        cmd_status(cfg)
+    elif args.command == "config":
+        cmd_config(cfg)
+    elif args.command == "test":
+        cmd_test(cfg)
+    else:
+        client.run_client()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,22 @@
+[peer]
+name = "MB"
+public_ip = "127.0.0.1"
+port = 45821
+fingerprint = ""
+cert_path = ""
+
+[local]
+name = "SP"
+port = 45821
+cert_fingerprint = ""
+
+[transfer]
+max_file_size_mb = 200
+download_directory = "~/Downloads/JroNex-Bro"
+
+[security]
+shared_key = "change-me"
+enforce_peer_ip = false
+
+[network]
+connect_timeout = 8
