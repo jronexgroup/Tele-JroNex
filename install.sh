@@ -105,16 +105,33 @@ enforce_peer_ip = false
 connect_timeout = 8
 EOF
 
+LISTENER_UP=0
 if command -v systemctl >/dev/null 2>&1 && systemctl --user >/dev/null 2>&1; then
   echo "==> Installing systemd user service"
-  cp "$SRC_DIR/systemd/tele-jronex.service" "$SYSTEMD_USER_DIR/tele-jronex.service"
-  systemctl --user daemon-reload
-  systemctl --user enable tele-jronex.service || true
-  systemctl --user restart tele-jronex.service || true
+  cp "$SRC_DIR/systemd/tele-jronex.service" "$SYSTEMD_USER_DIR/tele-jronex.service" 2>/dev/null || \
+    sudo cp "$SRC_DIR/systemd/tele-jronex.service" "$SYSTEMD_USER_DIR/tele-jronex.service" 2>/dev/null || true
+  systemctl --user daemon-reload 2>/dev/null || true
+  systemctl --user enable tele-jronex.service 2>/dev/null || true
+  systemctl --user restart tele-jronex.service 2>/dev/null || true
   loginctl enable-linger "$USER" 2>/dev/null || true
-else
-  echo "==> systemctl --user unavailable; start the listener manually:"
-  echo "    python3 $LIB_DIR/server.py &"
+  sleep 1
+  if systemctl --user is-active tele-jronex.service 2>/dev/null | grep -q active; then
+    LISTENER_UP=1
+  fi
+fi
+
+if [[ "$LISTENER_UP" != "1" ]]; then
+  echo "==> systemd service failed to start; starting listener directly..."
+  pkill -f "tele-jronex/server.py" 2>/dev/null || true
+  sleep 0.5
+  setsid nohup /usr/bin/python3 "$LIB_DIR/server.py" > "$DATA_DIR/listener.log" 2>&1 < /dev/null &
+  sleep 1
+  if ss -tln 2>/dev/null | grep -q ":45821"; then
+    LISTENER_UP=1
+    echo "    listener is UP (port 45821)"
+  else
+    echo "    WARNING: listener did not start; see $DATA_DIR/listener.log"
+  fi
 fi
 
 echo ==> "Tailscale (needed for NAT/hotspot connectivity)"
