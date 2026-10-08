@@ -75,7 +75,7 @@ def tailscale_peer_ips():
     except (OSError, subprocess.TimeoutExpired, ValueError):
         return []
     ips = []
-    for node in data.get("Peer", {}).values():
+    for node in (data.get("Peer") or {}).values():
         for ip in node.get("TailscaleIPs", []) or []:
             if ":" not in ip:
                 ips.append(ip)
