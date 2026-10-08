@@ -85,6 +85,10 @@ def cmd_test(cfg):
     if raw is None:
         print("Connection         : FAILED")
         print()
+        print("Tried:")
+        for cand in config.peer_candidates(cfg):
+            print(f"  - {cand}:{pport}")
+        print()
         print("Possible causes:")
         print("- Peer PC is offline")
         print("- JroNex listener is stopped")
