@@ -72,24 +72,30 @@ def cmd_test(cfg):
     print(f"Peer IP            : {cfg.get('peer', {}).get('public_ip', '?')}")
     print(f"Peer port          : {cfg.get('peer', {}).get('port', '?')}")
     print()
-    ip = cfg.get("peer", {}).get("public_ip", "")
     pport = int(cfg.get("peer", {}).get("port", 0))
     timeout = int(cfg.get("network", {}).get("connect_timeout", 8))
-    try:
-        cert = cfg["local"].get("cert_path", str(config.CONFIG_DIR / "cert.pem"))
-        key = cfg["local"].get("key_path", str(config.CONFIG_DIR / "key.pem"))
-        raw = socket.create_connection((ip, pport), timeout=timeout)
-    except (OSError, socket.timeout, KeyError):
+    raw = None
+    for cand in config.peer_candidates(cfg):
+        try:
+            raw = socket.create_connection((cand, pport), timeout=min(timeout, 5))
+            ip = cand
+            break
+        except (OSError, socket.timeout):
+            continue
+    if raw is None:
         print("Connection         : FAILED")
         print()
         print("Possible causes:")
         print("- Peer PC is offline")
         print("- JroNex listener is stopped")
-        print("- Port forwarding is missing")
+        print("- Both of you are behind NAT (phone hotspot / carrier NAT):")
+        print("  install Tailscale on both PCs (see README) and it will work")
         print("- Firewall is blocking the connection")
         print("- Public IP has changed")
         return
     try:
+        cert = cfg["local"].get("cert_path", str(config.CONFIG_DIR / "cert.pem"))
+        key = cfg["local"].get("key_path", str(config.CONFIG_DIR / "key.pem"))
         peer_cert = cfg["peer"].get("cert_path", str(config.CONFIG_DIR / "peer_cert.pem"))
         ctx = protocol.tls_context_client(cert, key, peer_cert)
         tls = ctx.wrap_socket(raw, server_hostname=ip)

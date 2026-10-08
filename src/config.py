@@ -1,4 +1,6 @@
+import json
 import os
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -59,3 +61,33 @@ def download_dir(cfg):
 def max_file_size(cfg):
     mb = cfg.get("transfer", {}).get("max_file_size_mb", 200)
     return int(mb) * 1024 * 1024
+
+
+def tailscale_peer_ips():
+    try:
+        r = subprocess.run(
+            ["tailscale", "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        data = json.loads(r.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return []
+    ips = []
+    for node in data.get("Peer", {}).values():
+        for ip in node.get("TailscaleIPs", []) or []:
+            if ":" not in ip:
+                ips.append(ip)
+    return ips
+
+
+def peer_candidates(cfg):
+    candidates = []
+    configured = cfg.get("peer", {}).get("public_ip")
+    if configured:
+        candidates.append(configured)
+    for ip in tailscale_peer_ips():
+        if ip not in candidates:
+            candidates.append(ip)
+    return candidates

@@ -117,23 +117,29 @@ def print_history(editor, n=20):
 
 
 def connect_peer(cfg, services=None):
-    peer_ip = cfg["peer"]["public_ip"]
-    peer_port = int(cfg["peer"]["port"])
+    port = int(cfg["peer"]["port"])
     timeout = int(cfg.get("network", {}).get("connect_timeout", 8))
-    raw = socket.create_connection((peer_ip, peer_port), timeout=timeout)
     cert = cfg["local"].get("cert_path", str(config.CONFIG_DIR / "cert.pem"))
     key = cfg["local"].get("key_path", str(config.CONFIG_DIR / "key.pem"))
     peer_cert = cfg["peer"].get("cert_path", str(config.CONFIG_DIR / "peer_cert.pem"))
     ctx = protocol.tls_context_client(cert, key, peer_cert)
-    tls = ctx.wrap_socket(raw, server_hostname=peer_ip)
-    if not protocol.peer_cert_matches(tls, cfg["peer"].get("fingerprint", "")):
-        tls.close()
-        raise protocol.ProtocolError("peer certificate fingerprint mismatch")
-    name = cfg["local"]["name"]
-    shared = cfg.get("security", {}).get("shared_key", "")
-    protocol.handshake_client(tls, name, shared, peer_name=cfg["peer"].get("name"))
-    tls.settimeout(60)
-    return tls
+    last_err = None
+    for peer_ip in config.peer_candidates(cfg):
+        try:
+            raw = socket.create_connection((peer_ip, port), timeout=min(timeout, 5))
+            tls = ctx.wrap_socket(raw, server_hostname=peer_ip)
+            if not protocol.peer_cert_matches(tls, cfg["peer"].get("fingerprint", "")):
+                tls.close()
+                raise protocol.ProtocolError("peer certificate fingerprint mismatch")
+            name = cfg["local"]["name"]
+            shared = cfg.get("security", {}).get("shared_key", "")
+            protocol.handshake_client(tls, name, shared, peer_name=cfg["peer"].get("name"))
+            tls.settimeout(60)
+            return tls
+        except (OSError, socket.timeout, ssl.SSLError, protocol.ProtocolError, KeyError) as e:
+            last_err = e
+            continue
+    raise last_err if last_err else protocol.ProtocolError("no peer address available")
 
 
 def log_history(event):

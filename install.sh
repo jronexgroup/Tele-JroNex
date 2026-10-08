@@ -117,6 +117,21 @@ else
   echo "    python3 $LIB_DIR/server.py &"
 fi
 
+echo ==> "Tailscale (needed for NAT/hotspot connectivity)"
+if ! command -v tailscale >/dev/null 2>&1; then
+  echo "    tailscale not found; installing (sudo may ask for a password)..."
+  sudo dnf install tailscale -y || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tailscale || true
+fi
+if command -v tailscale >/dev/null 2>&1; then
+  sudo systemctl enable --now tailscaled 2>/dev/null || true
+  if sudo tailscale status >/dev/null 2>&1; then
+    echo "    tailscale is up: $(tailscale ip -4 2>/dev/null)"
+  else
+    echo "    ACTION NEEDED: run  sudo tailscale up"
+    echo "    and log in with your browser (same account on both machines)."
+  fi
+fi
+
 echo
 echo "==> Done. This machine is configured as: $SIDE"
 echo "  Peer: $PEER_NAME at $PEER_IP:$PORT"
