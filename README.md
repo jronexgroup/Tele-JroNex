@@ -24,163 +24,73 @@ No central server, no cloud. A systemd background listener handles incoming data
 
 ---
 
-## 1. Install on your machine (SP)
+## Quick start (zero-config install)
+
+The repo already contains the shared credentials (IPs, port `45821`, shared key,
+and a shared TLS keypair), so installing is the only step:
 
 ```bash
+git clone https://github.com/jronexgroup/Tele-JroNex.git
 cd Tele-JroNex
 ./install.sh
 ```
 
-The installer will:
+The installer detects which machine it is (hostname `Rubai` → SP, hostname `fedora` → MB),
+writes the right `~/.config/tele-jronex/config.toml`, installs the cert/key/peer cert,
+creates `~/Downloads/JroNex-Bro/`, and installs the systemd service.
 
-1. Check Linux / Python / openssl.
-2. Copy sources to `~/.local/lib/tele-jronex/`.
-3. Create `~/.config/tele-jronex/config.toml`.
-4. Generate a TLS keypair in `~/.config/tele-jronex/`.
-5. Create `~/Downloads/JroNex-Bro/`.
-6. Install + enable `tele-jronex.service` (systemd user service, lingering).
-7. Print your certificate fingerprint.
-
-If the installer prints `Permission denied` for the systemd service or `~/.local/bin`, run:
+If hostname detection fails:
 
 ```bash
-sudo chown -R $USER:$USER ~/.config/systemd ~/.local/bin
-cd Tele-JroNex && ./install.sh
+TJX_SIDE=SP ./install.sh   # on your machine
+TJX_SIDE=MB ./install.sh   # on your brother's machine
 ```
 
-Verify:
+Then:
 
 ```bash
-tjx version        # Tele JroNex 1.0.0
-tjx status         # Listener should show ONLINE
+tjx test
 ```
+
+Expect `Connection: OK`, `Authentication: OK`, `Tele JroNex: READY`.
+
+Both machines also need TCP port `45821` forwarded through their routers and allowed
+in the firewall (see "Router / firewall" below).
 
 ---
 
-## 2. Install on your brother's machine (MB)
+## Manual configuration (only if you change IPs / credentials)
 
-Copy the whole `Tele-JroNex` folder to his machine (USB, scp, etc.), then:
-
-```bash
-cd Tele-JroNex
-./install.sh
-```
-
-Same sudo fix if needed:
-
-```bash
-sudo chown -R $USER:$USER ~/.config/systemd ~/.local/bin
-cd Tele-JroNex && ./install.sh
-```
-
-Verify:
-
-```bash
-tjx version
-tjx status
-```
-
----
-
-## 3. Exchange connection info (do both sides)
-
-On **each** machine, run the installer output or:
-
-```bash
-openssl x509 -in ~/.config/tele-jronex/cert.pem -outform DER | sha256sum
-```
-
-This is your **fingerprint**.
-
-Also note:
-
-- Your **public IP** (`curl ifconfig.me` or check router WAN page)
-- The **port** for Tele JroNex (default `45821`)
-
-Send your brother: your public IP, port, fingerprint, and the file
-`~/.config/tele-jronex/cert.pem`.
-
-He does the same for you.
-
----
-
-## 4. Configure each machine
-
-### On your machine (SP)
-
-```bash
-nano ~/.config/tele-jronex/config.toml
-```
+The installer writes `~/.config/tele-jronex/config.toml` for you.
+Typical layout:
 
 ```toml
 [peer]
 name = "MB"
-public_ip = "HIS_PUBLIC_IP"
+public_ip = "42.105.195.103"
 port = 45821
-fingerprint = "HIS_SHA256_FINGERPRINT"
-cert_path = "/home/rubai/.config/tele-jronex/peer_cert.pem"
+fingerprint = "4c6031bd..."
+cert_path = "~/.config/tele-jronex/peer_cert.pem"
 
 [local]
 name = "SP"
 port = 45821
+cert_path = "~/.config/tele-jronex/cert.pem"
+key_path = "~/.config/tele-jronex/key.pem"
 
 [transfer]
 max_file_size_mb = 200
-download_directory = "/home/rubai/Downloads/JroNex-Bro"
+download_directory = "~/Downloads/JroNex-Bro"
 
 [security]
-shared_key = "ONE_LONG_RANDOM_SECRET_YOU_BOTH_SHARE"
+shared_key = "..."
 enforce_peer_ip = false
 
 [network]
 connect_timeout = 8
 ```
 
-### On his machine (MB)
-
-```bash
-nano ~/.config/tele-jronex/config.toml
-```
-
-```toml
-[peer]
-name = "SP"
-public_ip = "YOUR_PUBLIC_IP"
-port = 45821
-fingerprint = "YOUR_SHA256_FINGERPRINT"
-cert_path = "/home/BROTHER_USER/.config/tele-jronex/peer_cert.pem"
-
-[local]
-name = "MB"
-port = 45821
-
-[transfer]
-max_file_size_mb = 200
-download_directory = "/home/BROTHER_USER/Downloads/JroNex-Bro"
-
-[security]
-shared_key = "ONE_LONG_RANDOM_SECRET_YOU_BOTH_SHARE"
-enforce_peer_ip = false
-
-[network]
-connect_timeout = 8
-```
-
-Both sides must use:
-
-- the **same `shared_key`**
-- the other's **cert fingerprint**
-- the other's **actual public IP + their listening port**
-
-Each side saves his received `cert.pem` as:
-
-```bash
-cp <received cert.pem> ~/.config/tele-jronex/peer_cert.pem
-```
-
----
-
-## 5. Router / firewall (both machines)
+## Router / firewall (both machines)
 
 If both machines are behind their own router:
 
@@ -195,7 +105,7 @@ If both machines are behind their own router:
 
 ---
 
-## 6. Test the connection
+## Test the connection
 
 On either machine:
 
@@ -229,7 +139,7 @@ If `Connection: FAILED`, check:
 
 ---
 
-## 7. Use it
+## Use it
 
 ```bash
 tjx

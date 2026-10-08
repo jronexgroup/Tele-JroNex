@@ -44,34 +44,66 @@ if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
   sudo ln -sf "$LIB_DIR/tjx" /usr/local/bin/tjx || true
 fi
 
-if [[ ! -f "$CONFIG_DIR/config.toml" ]]; then
-  echo "==> Creating default config at $CONFIG_DIR/config.toml"
-  sed "s|~/Downloads/JroNex-Bro|$HOME/Downloads/JroNex-Bro|" "$SRC_DIR/config/default.toml" > "$CONFIG_DIR/config.toml"
+SHARED_KEY="54bb9d3bbf203b244a0273bef68059a0aed4f1dd086e8cbe"
+PORT="45821"
+SP_IP="139.5.230.51"
+MB_IP="42.105.195.103"
+SP_HOST="Rubai"
+MB_HOST="fedora"
+FP="4c6031bd3c52d5561629c98df47637ad198d9f515827473d93c9bf7cb115ba68"
+
+HOST="$(hostname)"
+SIDE="${TJX_SIDE:-}"
+if [[ -z "$SIDE" ]]; then
+  case "$HOST" in
+    "$SP_HOST") SIDE="SP" ;;
+    "$MB_HOST") SIDE="MB" ;;
+    *) echo "ERROR: unrecognized hostname '$HOST'."
+       echo "Re-run with TJX_SIDE=SP or TJX_SIDE=MB, e.g.:"
+       echo "  TJX_SIDE=MB ./install.sh"
+       exit 1 ;;
+  esac
+fi
+echo "==> Detected side: $SIDE"
+
+if [[ "$SIDE" == "SP" ]]; then
+  LOCAL_NAME="SP"; PEER_NAME="MB"; PEER_IP="$MB_IP"
 else
-  echo "==> Keeping existing config.toml"
+  LOCAL_NAME="MB"; PEER_NAME="SP"; PEER_IP="$SP_IP"
 fi
 
 mkdir -p "$HOME/Downloads/JroNex-Bro"
+cp "$SRC_DIR/config/embedded/cert.pem" "$CONFIG_DIR/cert.pem"
+cp "$SRC_DIR/config/embedded/key.pem" "$CONFIG_DIR/key.pem"
+cp "$SRC_DIR/config/embedded/cert.pem" "$CONFIG_DIR/peer_cert.pem"
+chmod 600 "$CONFIG_DIR/key.pem"
 
-if [[ ! -f "$CONFIG_DIR/cert.pem" || ! -f "$CONFIG_DIR/key.pem" ]]; then
-  echo "==> Generating TLS keypair"
-  openssl req -x509 -newkey rsa:2048 -nodes \
-    -keyout "$CONFIG_DIR/key.pem" -out "$CONFIG_DIR/cert.pem" \
-    -days 3650 -subj "/CN=tele-jronex" 2>/dev/null
-  chmod 600 "$CONFIG_DIR/key.pem"
-fi
+echo "==> Writing config at $CONFIG_DIR/config.toml"
+cat > "$CONFIG_DIR/config.toml" <<EOF
+[peer]
+name = "$PEER_NAME"
+public_ip = "$PEER_IP"
+port = $PORT
+fingerprint = "$FP"
+cert_path = "$CONFIG_DIR/peer_cert.pem"
 
-FP=$(openssl x509 -in "$CONFIG_DIR/cert.pem" -outform DER | sha256sum | awk '{print $1}')
-echo "==> Your certificate fingerprint (SHA-256, add this to your peer's config as peer.fingerprint):"
-echo "    $FP"
-python3 - "$CONFIG_DIR/config.toml" "$FP" <<'PYEOF'
-import re, sys
-path, fp = sys.argv[1], sys.argv[2]
-text = open(path).read()
-if 'cert_fingerprint = ""' in text:
-    text = text.replace('cert_fingerprint = ""', f'cert_fingerprint = "{fp}"', 1)
-    open(path, "w").write(text)
-PYEOF
+[local]
+name = "$LOCAL_NAME"
+port = $PORT
+cert_path = "$CONFIG_DIR/cert.pem"
+key_path = "$CONFIG_DIR/key.pem"
+
+[transfer]
+max_file_size_mb = 200
+download_directory = "$HOME/Downloads/JroNex-Bro"
+
+[security]
+shared_key = "$SHARED_KEY"
+enforce_peer_ip = false
+
+[network]
+connect_timeout = 8
+EOF
 
 if command -v systemctl >/dev/null 2>&1 && systemctl --user >/dev/null 2>&1; then
   echo "==> Installing systemd user service"
@@ -86,9 +118,8 @@ else
 fi
 
 echo
-echo "==> Done. Next steps:"
-echo "  1. Edit $CONFIG_DIR/config.toml with the peer's name/IP/port,"
-echo "     their cert fingerprint, and a shared key."
-echo "  2. Share YOUR fingerprint (above) with the peer."
-echo "  3. Run: tjx test"
-echo "  4. Make sure $TARGET_BIN is in your PATH ($HOME/bin usually is)."
+echo "==> Done. This machine is configured as: $SIDE"
+echo "  Peer: $PEER_NAME at $PEER_IP:$PORT"
+echo "  Run: tjx test      (should show READY once the peer is online)"
+echo "  Run: tjx           (chat client)"
+echo "  Make sure $TARGET_BIN is in your PATH."

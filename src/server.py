@@ -186,7 +186,7 @@ def main():
     cfg = config.load_config()
     if not cfg:
         print(f"[tjx] no config found at {config.CONFIG_PATH}")
-        print("Run install.sh or copy config/default.toml there.")
+        print("Run install.sh first (it creates the config).")
         sys.exit(1)
     threading.Thread(target=broker_loop, daemon=True).start()
     port = int(cfg.get("local", {}).get("port", 45821))
